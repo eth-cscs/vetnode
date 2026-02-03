@@ -17,30 +17,30 @@ from pydoc import locate
 
 
 def build_context(configuration:Configuration)->EvalContext:
-    eval_context:EvalContext    = EvalContext()
-    eval_context.scheduler = configuration.scheduler
+    main_context:EvalContext    = EvalContext()
+    main_context.scheduler = configuration.scheduler
     match configuration.scheduler:
             case "slurm":
-                eval_context.rank=int(os.environ["SLURM_PROCID"])
-                eval_context.local_rank = int(os.environ["SLURM_LOCALID"])
-                eval_context.nodes = asyncio.run(ScontrolCommand().run()).hostnames
-                eval_context.master_addr = eval_context.nodes[0]
-                eval_context.master_port = 29500 #Default port used to collect evaluation results
-                eval_context.world_size = int(os.environ['SLURM_NTASKS'])
-                eval_context.nodes_count = int(os.environ['SLURM_JOB_NUM_NODES'])
-                eval_context.tasks_per_node = int(eval_context.world_size/eval_context.nodes_count)
+                main_context.rank=int(os.environ["SLURM_PROCID"])
+                main_context.local_rank = int(os.environ["SLURM_LOCALID"])
+                main_context.nodes = asyncio.run(ScontrolCommand().run()).hostnames
+                main_context.master_addr = main_context.nodes[0]
+                main_context.master_port = 29500 #Default port used to collect evaluation results
+                main_context.world_size = int(os.environ['SLURM_NTASKS'])
+                main_context.nodes_count = int(os.environ['SLURM_JOB_NUM_NODES'])
+                main_context.tasks_per_node = int(main_context.world_size/main_context.nodes_count)
             case "standalone":
-                eval_context.rank=None
-                eval_context.local_rank = None
-                eval_context.nodes = None
-                eval_context.master_addr = "localhost"
-                eval_context.master_port = 29500
-                eval_context.world_size = 1
-                eval_context.nodes_count = None
-                eval_context.tasks_per_node = None
+                main_context.rank=0
+                main_context.local_rank = 0
+                main_context.nodes = None
+                main_context.master_addr = "localhost"
+                main_context.master_port = 29500
+                main_context.world_size = 1
+                main_context.nodes_count = None
+                main_context.tasks_per_node = None
             case _:
                 raise NotImplementedError("Support for the rquested scheduler has not been implemented.")
-    return eval_context
+    return main_context
 
 @click.command()
 @click.argument("config", type=click.Path(exists=True))
@@ -83,8 +83,8 @@ def diagnose(config) -> None:
 def setup(config) -> None:
     Configuration._yaml_file = config
     configuration = Configuration()
-    eval_context= build_context(configuration)
-    load_evals(eval_context,configuration.evals, install=True, index_url=configuration.pip.index_url)
+    main_context= build_context(configuration)
+    load_evals(main_context,configuration.evals, install=True, index_url=configuration.pip.index_url)
 
 
 async def send_int(writer, value: int):
@@ -146,85 +146,80 @@ async def run_evals_worker(main_context,evals):
                 return results
         except (asyncio.TimeoutError, ConnectionRefusedError) as e:
             await asyncio.sleep(2.0)
+            continue
         except Exception as e:
-            click.secho(f"Worker encountered an unexpected error: {e}", fg='red')
-            traceback.print_exc()
-            await asyncio.sleep(2.0)
+            raise e
     raise ConnectionError(
-        f"Failed to connect to master node {eval_context.master_addr}:{eval_context.master_port} after {retries} attempts"
+        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {retries} attempts"
     )
 
 
 async def synchronize_workers(main_context,evals):
-    clients = []  # [(reader, writer)]
-    results = [[None] * main_context.world_size  for _ in range(len(evals))]  # Initialize results list with None values
-    run = True
+    clients = []
+    results = [[None] * main_context.world_size  for _ in range(len(evals))]
+
     async def handle_client(reader, writer):
-        clients.append((reader, writer))
-        click.secho(" ✅ ", fg='green', nl=False)
-        await asyncio.Event().wait()  # keep handler alive
-        #while run:
-        #    try:
-        #        result_json = await recv_str(reader)
-        #        click.secho(f"Received result from worker: {result_json}", fg='white')
-        #        result = EvalResult.model_validate_json(result_json)
-        #        results[result.eval_id][result.rank] = result
-        #    except Exception as e:
-        #        click.secho(f"Worker disconnected. Error: {e}", fg='red')
-        #        break
-
-
-    server = await asyncio.start_server(handle_client, '0.0.0.0', main_context.master_port)
-    async with server:
-        click.secho(f"Worker ready: ", fg='green', nl=False)
-        while len(clients) < main_context.world_size:
-            await asyncio.sleep(0.2)
-        click.echo("")
-        for i in range(len(evals)):
-
-            # Send task index
-            click.secho(f"\nEvaluating {evals[i].name}:", fg='blue',nl=False)
-            for _, writer in clients:
-                await send_int(writer, i)
-
-            
-            for reader, _ in clients:
-                result_json = await recv_str(reader)
-                try:
-                    result = EvalResult.model_validate_json(result_json)
-                except Exception as e:
-                    click.secho(f"Error validating result JSON: {e}", fg='red')
-                    continue
-                match result.status:
-                    case EvalResultStatus.SUCCESS:
-                        click.secho(" ✅ ", fg='green', nl=False)
-                    case EvalResultStatus.FAILED:
-                        click.secho(" ❌ ", fg='red', nl=False)
-                    case EvalResultStatus.SKIPPED:
-                        click.secho(" ⏭️ ", fg='blue', nl=False)
-                    case _:
-                        click.secho(" ❓ ", fg='red', nl=False)
-                results[result.eval_id][result.rank] = result
-            
-            click.echo("")         
-
-        # Shutdown
-        print("Shutting down master")
-        run = False
-        for _, writer in clients:
-            await send_int(writer, -1)
-        await asyncio.sleep(5.0)
-        for reader, writer in clients:
-            reader.close()
+        try:
+            event = asyncio.Event()
+            clients.append((reader, writer, event))
+            click.secho(" 🚀 ", fg='green', nl=False)
+            await event.wait()  # keep handler alive
+        except Exception as e:
+            raise e
+        finally:
             writer.close()
             await writer.wait_closed()
 
 
+    server = await asyncio.start_server(handle_client, '0.0.0.0', main_context.master_port)
+    async with server:
+        try:
+            click.secho(f"Igniting workers: ", fg='green', nl=False)
+            while len(clients) < main_context.world_size:
+                await asyncio.sleep(0.2)
+            click.echo("")
+            for i in range(len(evals)):
 
-def load_evals( base_eval_context:EvalContext, eval_configs: List[EvalConfiguration], install:bool=False,index_url: str = None):
+                # Send task index
+                click.secho(f"\nEvaluating {evals[i].name}:", fg='blue',nl=False)
+                for _, writer,_ in clients:
+                    await send_int(writer, i)
+
+                
+                for reader, _, _ in clients:
+                    result_json = await recv_str(reader)
+                    try:
+                        result = EvalResult.model_validate_json(result_json)
+                    except Exception as e:
+                        click.secho(f"Error validating result JSON: {e}", fg='red')
+                        continue
+                    match result.status:
+                        case EvalResultStatus.SUCCESS:
+                            click.secho(" ✅ ", fg='green', nl=False)
+                        case EvalResultStatus.FAILED:
+                            click.secho(" ❌ ", fg='red', nl=False)
+                        case EvalResultStatus.SKIPPED:
+                            click.secho(" ⏭️ ", fg='blue', nl=False)
+                        case _:
+                            click.secho(" ❓ ", fg='red', nl=False)
+                    results[result.eval_id][result.rank] = result
+                click.echo("")         
+        except Exception as e:
+            raise e
+        finally:
+            for _, writer, _ in clients:
+                await send_int(writer, -1)
+            for _, _, event in clients:
+                event.set()
+            server.close()  # Stop accepting new connections
+            await server.wait_closed() 
+        
+
+
+def load_evals( main_context:EvalContext, eval_configs: List[EvalConfiguration], install:bool=False,index_url: str = None):
     evals = []
     for i,eval in enumerate(eval_configs):
-        eval_context = base_eval_context.model_copy(update={'eval_id': i})
+        eval_context = main_context.model_copy(update={'eval_id': i})
         #Load class dynamically
         try:
             if install and eval.requirements:
