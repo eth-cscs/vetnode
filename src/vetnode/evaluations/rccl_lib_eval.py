@@ -8,7 +8,8 @@ from pydantic import BaseModel
 import ctypes, socket
 from vetnode.commands.scontrol.scontrol_command import ScontrolCommand
 from vetnode.evaluations.base_eval import BaseEval
-from vetnode.evaluations.models import BandwidthSize, BinaryByteSize
+from vetnode.evaluations.models import BandwidthSize, BinaryByteSize,EvalResultStatus
+
 import numpy as np
 import traceback
 from hip import hip, rccl
@@ -144,4 +145,4 @@ class RcclLibEval(BaseEval):
 
         rccl.ncclCommDestroy(comm)
         bandwidth = (self.payload/elapsedtime) * (2*(world_size - 1) / world_size)   
-        return bandwidth > self.min_bandwidth, {"bandwidth": f"{conv_to_GBps(bandwidth):6.2f} GB/s"}
+        return EvalResultStatus.SUCCESS if bandwidth > self.min_bandwidth else EvalResultStatus.FAILED, {"bandwidth": f"{conv_to_GBps(bandwidth):6.2f} GB/s"}

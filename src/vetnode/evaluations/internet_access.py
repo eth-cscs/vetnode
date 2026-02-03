@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 import socket
 from vetnode.evaluations.base_eval import BaseEval
-
+from vetnode.evaluations.models import EvalResultStatus
 
 class InternetAccessEval(BaseEval):
     name:str
@@ -14,4 +14,4 @@ class InternetAccessEval(BaseEval):
     async def check(self,executor)->tuple[bool,dict]:
         socket.setdefaulttimeout(self.timeout)
         socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((self.host, self.port))
-        return True, None
+        return EvalResultStatus.SUCCESS, None

@@ -4,17 +4,28 @@
 import re
 from typing import Dict, List, Optional, Literal
 from pydantic import BaseModel, ByteSize
+from enum import Enum
 
 class EvalConfiguration(BaseModel, extra='allow'):
     name:str
     type:str
     requirements:Optional[List[str | List[str]]]=None
 
-class Evaluation(BaseModel):
-   test_name:str
-   test_type:str
-   passed:bool
-   elapsedtime:int
+
+class EvalResultStatus(Enum):
+    SUCCESS = 1
+    FAILED = 2
+    SKIPPED = 3
+    UNKNOWN = 4
+
+
+class EvalResult(BaseModel):
+   rank:int
+   eval_id:int
+   eval_name:Optional[str]=None
+   eval_type:Optional[str]=None
+   status:EvalResultStatus=EvalResultStatus.UNKNOWN
+   elapsedtime:Optional[float]=None
    metrics:Optional[Dict[str,str]]=None
 
 class EvalContext(BaseModel):

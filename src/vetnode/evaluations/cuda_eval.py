@@ -3,7 +3,7 @@ import asyncio
 import os
 from typing import Literal
 
-
+from vetnode.evaluations.models import EvalResultStatus
 from vetnode.evaluations.base_eval import BaseEval
 from ctypes import CDLL
 
@@ -171,7 +171,7 @@ class CUDAEval(BaseEval):
 
 
         if not np.allclose(hOut, hZ):
-            return False,{"error":"outside tolerance for host-device vectors","cuda_version":drv_version, "NVRTC_version": f"{nvrtc_major}.{nvrtc_minor}"}
+            return EvalResultStatus.FAILED,{"error":"outside tolerance for host-device vectors","cuda_version":drv_version, "NVRTC_version": f"{nvrtc_major}.{nvrtc_minor}"}
         
         driver.cuStreamDestroy(stream)
         driver.cuMemFree(dX)
@@ -180,7 +180,7 @@ class CUDAEval(BaseEval):
         driver.cuModuleUnload(module)
         driver.cuCtxDestroy(context)
 
-        return True,{"cuda_version":drv_version, "NVRTC_version": f"{nvrtc_major}.{nvrtc_minor}"}
+        return EvalResultStatus.SUCCESS,{"cuda_version":f"{drv_version}", "NVRTC_version": f"{nvrtc_major}.{nvrtc_minor}"}
 
     def checkCudaErrors(self, err):
         if err != driver.CUresult.CUDA_SUCCESS:

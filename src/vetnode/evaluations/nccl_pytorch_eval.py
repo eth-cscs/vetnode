@@ -10,8 +10,7 @@ from vetnode.commands.scontrol.scontrol_command import ScontrolCommand
 from vetnode.evaluations.base_eval import BaseEval
 import torch
 import torch.distributed as dist
-from vetnode.evaluations.models import BandwidthSize, BinaryByteSize
-
+from vetnode.evaluations.models import BandwidthSize, BinaryByteSize,EvalResultStatus
 
 # following the common networking hw spec convention which uses base 10, instead of 2 for bps/Bps (it makes speed look bigger than it is)
 conv_to_GBps = lambda v : v/10**9
@@ -86,7 +85,7 @@ class NcclPytorchEval(BaseEval):
         
         dist.destroy_process_group()
         
-        return bandwidth > self.min_bandwidth, {"bandwidth":f"{conv_to_GBps(bandwidth):6.2f} GB/s"}
+        return EvalResultStatus.SUCCESS if bandwidth > self.min_bandwidth else EvalResultStatus.FAILED, {"bandwidth":f"{conv_to_GBps(bandwidth):6.2f} GB/s"}
     
     def timed_allreduce_gather(self,local_rank,rank,tensor,size,ranks):
         
