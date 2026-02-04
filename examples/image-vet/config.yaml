@@ -28,7 +28,7 @@ evals:
   method: allreduce
   min_bandwidth: 250 GB/s
   warmup:
-    payload: 1 GB
+    payload: 2 GB
     runs: 3
   requirements: ["cuda-python","numpy"]
 - name: NCCL-Low-Level-Full-Topology
@@ -38,7 +38,7 @@ evals:
   method: allreduce
   min_bandwidth: 50 GB/s
   warmup:
-    payload: 1 GB
+    payload: 2 GB
     runs: 3
   requirements: ["cuda-python","numpy"]
 - name: NCCL-PyTorch
@@ -48,7 +48,7 @@ evals:
   method: allreduce
   min_bandwidth: 50 GB/s
   warmup:
-    payload: 1 GB
+    payload: 2 GB
     runs: 3
   requirements:
       - ['torch', '--index-url', 'https://download.pytorch.org/whl/cu130']
