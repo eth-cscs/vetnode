@@ -1,5 +1,7 @@
 name: Image Vetting
 scheduler: slurm
+pip:
+   index_url: "https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple"
 evals:
 - name: CudaKernel
   type: vetnode.evaluations.cuda_eval.CUDAEval
