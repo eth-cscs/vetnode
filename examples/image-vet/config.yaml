@@ -28,8 +28,8 @@ evals:
   method: allreduce
   min_bandwidth: 250 GB/s
   warmup:
-    payload: 256 MB
-    runs: 2
+    payload: 512 MB
+    runs: 3
   requirements: ["cuda-python","numpy"]
 - name: NCCL-Low-Level-Full-Topology
   type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
@@ -38,8 +38,8 @@ evals:
   method: allreduce
   min_bandwidth: 50 GB/s
   warmup:
-    payload: 256 MB
-    runs: 2
+    payload: 512 MB
+    runs: 3
   requirements: ["cuda-python","numpy"]
 - name: NCCL-PyTorch
   type: vetnode.evaluations.nccl_pytorch_eval.NcclPytorchEval
@@ -48,8 +48,8 @@ evals:
   method: allreduce
   min_bandwidth: 50 GB/s
   warmup:
-    payload: 256 MB
-    runs: 2
+    payload: 512 MB
+    runs: 3
   requirements:
       - ['torch', '--index-url', 'https://download.pytorch.org/whl/cu130']
       - numpy
