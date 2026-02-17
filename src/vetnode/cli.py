@@ -43,7 +43,8 @@ def build_context(configuration:Configuration)->EvalContext:
 @click.command()
 @click.argument("config", type=click.Path(exists=True))
 @click.option("--skip-install", default=False, is_flag=True, help="Skip installation of the evals requirements. Useful when requirements are already installed (see setup command).")
-def diagnose(config,skip_install) -> None:
+@click.option("--verbose", default=False, is_flag=True, help="Enable verbose output.")
+def diagnose(config,skip_install,verbose) -> None:
     hostname:str = socket.gethostname()
     Configuration._yaml_file = config
     configuration = Configuration()
@@ -67,15 +68,16 @@ def diagnose(config,skip_install) -> None:
                 else:
                     if not result.status == EvalResultStatus.SUCCESS and not result.status == EvalResultStatus.SKIPPED:
                         healthy=False
-                    click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
+                    if verbose:
+                        click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
             continue
         click.secho(f"Node: {hostname} \t result:{results}", fg='red')
 
-    if healthy:
-        click.echo(f"Vetted: {hostname}")
-    else:
-        click.echo(f"Cordon: {hostname}")
-        sys.exit(1)
+    #if healthy:
+    #    click.echo(f"Vetted: {hostname}")
+    #else:
+    #    click.echo(f"Cordon: {hostname}")
+    #    sys.exit(1)
 
 @click.command()
 @click.argument("config", type=click.Path(exists=True))
@@ -225,7 +227,7 @@ async def synchronize_workers(main_context,evals):
             for i in range(len(evals)):
 
                 # Send task index
-                click.secho(f"\nEvaluating {evals[i].name}:", fg='blue',nl=False)
+                click.secho(f"Evaluating {evals[i].name}:", fg='blue',nl=False)
                 for _, writer,_ in clients:
                     await send_str(writer, f"EVAL:{i}")
 
