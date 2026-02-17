@@ -7,11 +7,9 @@ from vetnode.configuration import Configuration
 from vetnode.evaluations.models import EvalConfiguration,EvalContext,EvalResult,EvalResultStatus
 import os
 from vetnode.commands.scontrol.scontrol_command import ScontrolCommand
-import asyncio
 import struct
 import sys
 import subprocess
-import sys
 from pydoc import locate
 
 
@@ -126,20 +124,37 @@ async def run_evals_worker(main_context,evals):
             reader, writer = await asyncio.wait_for(asyncio.open_connection(main_context.master_addr, main_context.master_port), timeout=5.0)
             try:
                 while True:
-                    i = await recv_int(reader)
-                    if i == -1:
+                    instruction = await recv_str(reader)
+                    if instruction == "STOP":
                         return results
+                    
+                    if instruction.startswith("SETUP"):
+                        _, eval_id_str = instruction.split(":")
+                        eval_id = int(eval_id_str)
+                        installed = False
+                        try:
+                            if  main_context.local_rank==0 and evals[eval_id].requirements:
+                                load_requirements(evals[eval_id].requirements,main_context.index_url)
+                                installed = True
+                        except Exception as ex:
+                            click.secho(f"Skipped: {evals[eval_id].name} (error: {ex})", fg='red')
+                            await send_int(writer, -1)
+                        finally:
+                            await send_int(writer, installed)
 
-                    eval = evals[i]
-                    result = EvalResult(rank=main_context.rank, eval_id=i)
-                    try:
-                        if eval.verify():
-                            result = await eval.eval()
-                            results.append(result)
-                    except Exception as ex:
-                        click.secho(f"Skipped: {eval.name} (error: {ex})", fg='red')
-                    finally:
-                        await send_str(writer, f"{result.model_dump_json()}")
+                    if instruction.startswith("EVAL"):
+                        _, eval_id_str = instruction.split(":")
+                        i = int(eval_id_str)
+                        eval = evals[i]
+                        result = EvalResult(rank=main_context.rank, eval_id=i)
+                        try:
+                            if eval.verify():
+                                result = await eval.eval()
+                                results.append(result)
+                        except Exception as ex:
+                            click.secho(f"Skipped: {eval.name} (error: {ex})", fg='red')
+                        finally:
+                            await send_str(writer, f"{result.model_dump_json()}")
             finally:
                 writer.close()
                 await writer.wait_closed()
@@ -174,16 +189,38 @@ async def synchronize_workers(main_context,evals):
     server = await asyncio.start_server(handle_client, '0.0.0.0', main_context.master_port)
     async with server:
         try:
-            click.secho(f"Igniting workers: ", fg='green', nl=False)
+            click.secho("Igniting workers: ", fg='green', nl=False)
             while len(clients) < main_context.world_size:
                 await asyncio.sleep(0.2)
             click.echo("")
             for i in range(len(evals)):
 
                 # Send task index
+                click.secho(f"\Setting up {evals[i].name}:", fg='blue',nl=False)
+                for _, writer,_ in clients:
+                    await send_str(writer, f"SETUP:{i}")
+
+                
+                for reader, _, _ in clients:
+                    setup_status = await recv_int(reader)
+                    match setup_status:
+                        case 0:
+                            click.secho(" ⏭️ ", fg='green', nl=False)
+                        case 1:
+                            click.secho(" 🛠️ ", fg='green', nl=False)
+                        case -1:
+                            click.secho(" ❌ ", fg='red', nl=False)
+                        case _:
+                            click.secho(" ❓ ", fg='red', nl=False)
+                click.echo("")
+                   
+            click.echo("") 
+            for i in range(len(evals)):
+
+                # Send task index
                 click.secho(f"\nEvaluating {evals[i].name}:", fg='blue',nl=False)
                 for _, writer,_ in clients:
-                    await send_int(writer, i)
+                    await send_str(writer, f"EVAL:{i}")
 
                 
                 for reader, _, _ in clients:
@@ -208,7 +245,7 @@ async def synchronize_workers(main_context,evals):
             raise e
         finally:
             for _, writer, _ in clients:
-                await send_int(writer, -1)
+                await send_str(writer, "STOP")
             for _, _, event in clients:
                 event.set()
             server.close()  # Stop accepting new connections
@@ -232,7 +269,7 @@ def load_evals( main_context:EvalContext, eval_configs: List[EvalConfiguration],
 
 def load_requirements(requirements: List[str], index_url: str = None):
     for package in requirements:
-        cmd = [sys.executable, "-m", "pip", "install", "-q"]
+        cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir","-q"]
         if index_url:
             cmd += ["--index-url",index_url]
         if isinstance(package, str):
