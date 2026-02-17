@@ -11,7 +11,7 @@ import struct
 import sys
 import subprocess
 from pydoc import locate
-
+from tabulate import tabulate
 
 
 def build_context(configuration:Configuration)->EvalContext:
@@ -72,11 +72,17 @@ def diagnose(config,skip_install,verbose) -> None:
                     if verbose:
                         click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
             continue
-    
+        if isinstance(results, dict):
+            headers = ["Node"] + [f"Rank-{i}" for i in range(len(main_context.tasks_per_node))]
+            table = tabulate([[k, *v] for k, v in results.items()], headers=headers, tablefmt="grid")
+            click.secho(table, fg="cyan")
+
     if healthy:
-        click.secho(f"[{hostname}-{main_context.rank}: Vetted] ", fg='green',nl=False)
+        if verbose:
+            click.secho(f"[{hostname}-{main_context.rank}: Vetted] ", fg='green',nl=False)
     else:
-        click.secho(f"[{hostname}-{main_context.rank}:Cordon] ", fg='red',nl=False)
+        if verbose:
+            click.secho(f"[{hostname}-{main_context.rank}:Cordon] ", fg='red',nl=False)
         sys.exit(1)
 
 @click.command()
@@ -177,6 +183,7 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
 async def synchronize_workers(main_context,evals):
     clients = []
     results = [[None] * main_context.world_size  for _ in range(len(evals))]
+    nodes = {}
 
     async def handle_client(reader, writer):
         try:
@@ -213,6 +220,8 @@ async def synchronize_workers(main_context,evals):
                     except Exception as e:
                         click.secho(f"Error deserializing setup result JSON: {e}", fg='red')
                         continue
+                    if result.hostname not in nodes:
+                        nodes[result.hostname] = [EvalResultStatus.UNKNOWN] * main_context.tasks_per_node
                     match result.status:
                         case SetupResultStatus.SUCCESS:
                             click.secho(f"{result.hostname} 🛠️  ", fg='green', nl=False)
@@ -220,6 +229,7 @@ async def synchronize_workers(main_context,evals):
                             continue
                         case SetupResultStatus.FAILED:
                             click.secho(" ❌ ", fg='red', nl=False)
+                            nodes[result.hostname][result.local_rank] = False
                         case _:
                             click.secho(" ❓ ", fg='red', nl=False)
                 click.echo("")
@@ -248,7 +258,7 @@ async def synchronize_workers(main_context,evals):
                             click.secho(" ⏭️ ", fg='blue', nl=False)
                         case _:
                             click.secho(" ❓ ", fg='red', nl=False)
-                    results[result.eval_id][result.rank] = result
+                    results[result.eval_id][result.rank] = result.status
                 click.echo("")         
         except Exception as e:
             raise e
@@ -259,6 +269,7 @@ async def synchronize_workers(main_context,evals):
                 event.set()
             server.close()  # Stop accepting new connections
             await server.wait_closed() 
+    return nodes
         
 
 
