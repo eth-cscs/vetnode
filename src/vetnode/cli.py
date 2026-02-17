@@ -74,7 +74,12 @@ def diagnose(config,skip_install,verbose) -> None:
             continue
         if isinstance(results, dict):
             headers = ["Node"] + [f"Rank-{i}" for i in range(main_context.tasks_per_node)]
-            table = tabulate([[k, *v] for k, v in results.items()], headers=headers, tablefmt="grid")
+            rows = [[k, *v] for k, v in results.items()]
+            rows = [
+                [cell.display() if isinstance(cell, EvalResultStatus) else cell for cell in row]
+                for row in rows
+            ]
+            table = tabulate(rows, headers=headers, tablefmt="grid")
             click.secho(table, fg="cyan")
 
     if healthy:
@@ -208,7 +213,7 @@ async def synchronize_workers(main_context,evals):
             for i in range(len(evals)):
 
                 # Send task index
-                click.secho(f"Setting up {evals[i].name}:", fg='blue',nl=False)
+                click.secho(f"Setting up {evals[i].name}: ", fg='blue',nl=False)
                 for _, writer,_ in clients:
                     await send_str(writer, f"SETUP:{i}")
 
@@ -229,7 +234,7 @@ async def synchronize_workers(main_context,evals):
                             continue
                         case SetupResultStatus.FAILED:
                             click.secho(" ❌ ", fg='red', nl=False)
-                            nodes[result.hostname][result.local_rank] = False
+                            nodes[result.hostname][result.local_rank] = EvalResultStatus.FAILED
                         case _:
                             click.secho(" ❓ ", fg='red', nl=False)
                 click.echo("")
@@ -252,13 +257,17 @@ async def synchronize_workers(main_context,evals):
                     match result.status:
                         case EvalResultStatus.SUCCESS:
                             click.secho(" ✅ ", fg='green', nl=False)
+                            if nodes[result.hostname][result.local_rank] is not EvalResultStatus.FAILED:
+                                nodes[result.hostname][result.local_rank] = EvalResultStatus.SUCCESS
                         case EvalResultStatus.FAILED:
                             click.secho(" ❌ ", fg='red', nl=False)
+                            nodes[result.hostname][result.local_rank] = EvalResultStatus.FAILED
                         case EvalResultStatus.SKIPPED:
                             click.secho(" ⏭️ ", fg='blue', nl=False)
+                            if nodes[result.hostname][result.local_rank] is EvalResultStatus.UNKNOWN:
+                                nodes[result.hostname][result.local_rank] = EvalResultStatus.SKIPPED
                         case _:
                             click.secho(" ❓ ", fg='red', nl=False)
-                    results[result.eval_id][result.rank] = result.status
                 click.echo("")         
         except Exception as e:
             raise e
