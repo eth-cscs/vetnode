@@ -52,7 +52,7 @@ class EvalContext(BaseModel):
     master_addr:Optional[str]=None
     master_port:Optional[int]=None
     scheduler:Literal["slurm", "standalone"]="slurm"
-    hostname:Optional[str]=None``
+    hostname:Optional[str]=None
 
 class BinaryByteSize(ByteSize):
     byte_sizes = {
