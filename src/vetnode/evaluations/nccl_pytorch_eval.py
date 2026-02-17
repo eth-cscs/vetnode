@@ -53,7 +53,7 @@ class NcclPytorchEval(BaseEval):
         dist.init_process_group(
             backend="nccl",
             init_method="tcp://{}:{}".format(master_node, 6011+self.context.eval_id),
-            timeout=datetime.timedelta(seconds=30),
+            timeout=datetime.timedelta(seconds=120),
             rank=rank,
             world_size=world_size,
         )
