@@ -196,7 +196,7 @@ async def synchronize_workers(main_context,evals):
             for i in range(len(evals)):
 
                 # Send task index
-                click.secho(f"\Setting up {evals[i].name}:", fg='blue',nl=False)
+                click.secho(f"Setting up {evals[i].name}:", fg='blue',nl=False)
                 for _, writer,_ in clients:
                     await send_str(writer, f"SETUP:{i}")
 
