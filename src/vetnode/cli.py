@@ -206,7 +206,7 @@ async def synchronize_workers(main_context,evals):
                     setup_status = await recv_int(reader)
                     match setup_status:
                         case 0:
-                            click.secho(" ⏭️ ", fg='green', nl=False)
+                            continue
                         case 1:
                             click.secho(" 🛠️ ", fg='green', nl=False)
                         case -1:
