@@ -24,6 +24,15 @@ class EvalResultStatus(Enum):
     SKIPPED = 3
     UNKNOWN = 4
 
+    @property
+    def label(self) -> str:
+        return {
+            EvalResultStatus.SUCCESS: " ✅ ",
+            EvalResultStatus.FAILED: " ❌ ",
+            EvalResultStatus.SKIPPED: " ⏭️ ",
+            EvalResultStatus.UNKNOWN: " ❓ ",
+        }[self]
+
 
 class SetupResult(BaseModel):
    rank:int

@@ -73,7 +73,7 @@ def diagnose(config,skip_install,verbose) -> None:
                         click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
             continue
         if isinstance(results, dict):
-            headers = ["Node"] + [f"Rank-{i}" for i in range(len(main_context.tasks_per_node))]
+            headers = ["Node"] + [f"Rank-{i}" for i in range(main_context.tasks_per_node)]
             table = tabulate([[k, *v] for k, v in results.items()], headers=headers, tablefmt="grid")
             click.secho(table, fg="cyan")
 
