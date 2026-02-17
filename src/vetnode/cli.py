@@ -165,7 +165,7 @@ async def run_evals_worker(main_context,evals):
         except Exception as e:
             raise e
     raise ConnectionError(
-        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {retries} attempts"
+        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {attempt} attempts"
     )
 
 
