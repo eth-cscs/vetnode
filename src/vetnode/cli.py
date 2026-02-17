@@ -4,7 +4,7 @@ import click
 import traceback
 import socket  
 from vetnode.configuration import Configuration
-from vetnode.evaluations.models import EvalConfiguration,EvalContext,EvalResult,EvalResultStatus
+from vetnode.evaluations.models import EvalConfiguration,EvalContext,EvalResult,EvalResultStatus, SetupResult, SetupResultStatus, SetupResultStatus
 import os
 from vetnode.commands.scontrol.scontrol_command import ScontrolCommand
 import struct
@@ -132,22 +132,24 @@ async def run_evals_worker(main_context,evals, install:bool=True,index_url: str 
                     if instruction.startswith("SETUP"):
                         _, eval_id_str = instruction.split(":")
                         eval_id = int(eval_id_str)
-                        installed = False
+                        result = SetupResult(rank=main_context.rank, eval_id=eval_id)
                         try:
                             if install and main_context.local_rank==0 and evals[eval_id].requirements:
                                 load_requirements(evals[eval_id].requirements,index_url)
-                                installed = True
+                                result.status = SetupResultStatus.SUCCESS
+                            else:
+                                result.status = SetupResultStatus.SKIPPED
                         except Exception as ex:
                             click.secho(f"Skipped: {evals[eval_id].name} (error: {ex})", fg='red')
-                            await send_int(writer, -1)
+                            result.status = SetupResultStatus.FAILED
                         finally:
-                            await send_int(writer, installed)
+                            await send_str(writer, f"{result.model_dump_json()}")
 
                     if instruction.startswith("EVAL"):
                         _, eval_id_str = instruction.split(":")
-                        i = int(eval_id_str)
-                        eval = evals[i]
-                        result = EvalResult(rank=main_context.rank, eval_id=i)
+                        eval_id = int(eval_id_str)
+                        eval = evals[eval_id]
+                        result = EvalResult(rank=main_context.rank, eval_id=eval_id)
                         try:
                             if eval.verify():
                                 result = await eval.eval()
@@ -203,13 +205,18 @@ async def synchronize_workers(main_context,evals):
 
                 
                 for reader, _, _ in clients:
-                    setup_status = await recv_int(reader)
-                    match setup_status:
-                        case 0:
+                    setup_json = await recv_str(reader)
+                    try:
+                        result = SetupResult.model_validate_json(setup_json)
+                    except Exception as e:
+                        click.secho(f"Error deserializing setup result JSON: {e}", fg='red')
+                        continue
+                    match result.status:
+                        case SetupResultStatus.SUCCESS:
+                            click.secho(f" 🛠️[rank: {result.rank}] ", fg='green', nl=False)
+                        case SetupResultStatus.SKIPPED:
                             continue
-                        case 1:
-                            click.secho(" 🛠️ ", fg='green', nl=False)
-                        case -1:
+                        case SetupResultStatus.FAILED:
                             click.secho(" ❌ ", fg='red', nl=False)
                         case _:
                             click.secho(" ❓ ", fg='red', nl=False)

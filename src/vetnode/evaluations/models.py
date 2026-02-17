@@ -12,12 +12,23 @@ class EvalConfiguration(BaseModel, extra='allow'):
     requirements:Optional[List[str | List[str]]]=None
 
 
+class SetupResultStatus(Enum):
+    SUCCESS = 1
+    FAILED = 2
+    SKIPPED = 3
+    UNKNOWN = 4
+
 class EvalResultStatus(Enum):
     SUCCESS = 1
     FAILED = 2
     SKIPPED = 3
     UNKNOWN = 4
 
+
+class SetupResult(BaseModel):
+   rank:int
+   eval_id:int
+   status:SetupResultStatus=SetupResultStatus.UNKNOWN
 
 class EvalResult(BaseModel):
    rank:int
