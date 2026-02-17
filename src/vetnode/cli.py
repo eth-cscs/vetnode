@@ -74,9 +74,9 @@ def diagnose(config,skip_install,verbose) -> None:
             continue
     
     if healthy:
-        click.secho(f"Node: {hostname} \t Vetted", fg='green')
+        click.secho(f"[{hostname}-{main_context.rank}: Vetted] ", fg='green',nl=False)
     else:
-        click.secho(f"Node: {hostname} \t Cordon", fg='red')
+        click.secho(f"[{hostname}-{main_context.rank}:Cordon] ", fg='red',nl=False)
         sys.exit(1)
 
 @click.command()
@@ -215,7 +215,7 @@ async def synchronize_workers(main_context,evals):
                         continue
                     match result.status:
                         case SetupResultStatus.SUCCESS:
-                            click.secho(f" 🛠️{result.hostname} ", fg='green', nl=False)
+                            click.secho(f"{result.hostname} 🛠️  ", fg='green', nl=False)
                         case SetupResultStatus.SKIPPED:
                             continue
                         case SetupResultStatus.FAILED:
