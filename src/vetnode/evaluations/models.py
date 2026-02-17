@@ -36,12 +36,14 @@ class EvalResultStatus(Enum):
 
 class SetupResult(BaseModel):
    rank:int
+   local_rank:int
    eval_id:int
    status:SetupResultStatus=SetupResultStatus.UNKNOWN
    hostname:Optional[str]=None
 
 class EvalResult(BaseModel):
    rank:int
+   local_rank:int
    eval_id:int
    eval_name:Optional[str]=None
    eval_type:Optional[str]=None

@@ -145,7 +145,7 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
                     if instruction.startswith("SETUP"):
                         _, eval_id_str = instruction.split(":")
                         eval_id = int(eval_id_str)
-                        result = SetupResult(rank=main_context.rank, eval_id=eval_id, hostname=main_context.hostname)
+                        result = SetupResult(rank=main_context.rank, local_rank=main_context.local_rank, eval_id=eval_id, hostname=main_context.hostname)
                         try:
                             if not skip_install and main_context.local_rank==0 and evals[eval_id].requirements:
                                 load_requirements(evals[eval_id].requirements,index_url)
@@ -162,7 +162,7 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
                         _, eval_id_str = instruction.split(":")
                         eval_id = int(eval_id_str)
                         eval = evals[eval_id]
-                        result = EvalResult(rank=main_context.rank, eval_id=eval_id, hostname=main_context.hostname)
+                        result = EvalResult(rank=main_context.rank, local_rank=main_context.local_rank,eval_id=eval_id, hostname=main_context.hostname)
                         try:
                             if eval.verify():
                                 result = await eval.eval()
