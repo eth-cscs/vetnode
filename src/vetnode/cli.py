@@ -4,21 +4,20 @@ import click
 import traceback
 import socket  
 from vetnode.configuration import Configuration
-from vetnode.evaluations.models import EvalConfiguration,EvalContext,EvalResult,EvalResultStatus
+from vetnode.evaluations.models import EvalConfiguration,EvalContext,EvalResult,EvalResultStatus, SetupResult, SetupResultStatus, SetupResultStatus
 import os
 from vetnode.commands.scontrol.scontrol_command import ScontrolCommand
-import asyncio
 import struct
 import sys
 import subprocess
-import sys
 from pydoc import locate
-
+from tabulate import tabulate
 
 
 def build_context(configuration:Configuration)->EvalContext:
     main_context:EvalContext    = EvalContext()
     main_context.scheduler = configuration.scheduler
+    main_context.hostname = socket.gethostname()
     match configuration.scheduler:
             case "slurm":
                 main_context.rank=int(os.environ["SLURM_PROCID"])
@@ -36,22 +35,24 @@ def build_context(configuration:Configuration)->EvalContext:
                 main_context.master_addr = "localhost"
                 main_context.master_port = 29500
                 main_context.world_size = 1
-                main_context.nodes_count = None
-                main_context.tasks_per_node = None
+                main_context.nodes_count = 1
+                main_context.tasks_per_node = 1
             case _:
                 raise NotImplementedError("Support for the rquested scheduler has not been implemented.")
     return main_context
 
 @click.command()
 @click.argument("config", type=click.Path(exists=True))
-def diagnose(config) -> None:
+@click.option("--skip-install", default=False, is_flag=True, help="Skip installation of the evals requirements. Useful when requirements are already installed (see setup command).")
+@click.option("--verbose", default=False, is_flag=True, help="Enable verbose output.")
+def diagnose(config,skip_install,verbose) -> None:
     hostname:str = socket.gethostname()
     Configuration._yaml_file = config
     configuration = Configuration()
     main_context= build_context(configuration)
     
     evals = load_evals(main_context, configuration.evals)
-    processes = asyncio.run(run_evals(main_context,evals))
+    processes = asyncio.run(run_evals(main_context,evals,skip_install=skip_install,index_url=configuration.pip.index_url))
     healthy:bool=True
     for results in processes:
         if isinstance(results, Exception):
@@ -68,14 +69,25 @@ def diagnose(config) -> None:
                 else:
                     if not result.status == EvalResultStatus.SUCCESS and not result.status == EvalResultStatus.SKIPPED:
                         healthy=False
-                    click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
+                    if verbose:
+                        click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
             continue
-        click.secho(f"Node: {hostname} \t result:{results}", fg='red')
+        if isinstance(results, dict):
+            headers = ["Node"] + [f"Rank-{i}" for i in range(main_context.tasks_per_node)]
+            rows = [[k, *v] for k, v in results.items()]
+            rows = [
+                [cell.display() if isinstance(cell, EvalResultStatus) else cell for cell in row]
+                for row in rows
+            ]
+            table = tabulate(rows, headers=headers, tablefmt="grid")
+            click.secho(table, fg="cyan")
 
     if healthy:
-        click.echo(f"Vetted: {hostname}")
+        if verbose:
+            click.secho(f"[{hostname}-{main_context.rank}: Vetted] ", fg='green',nl=False)
     else:
-        click.echo(f"Cordon: {hostname}")
+        if verbose:
+            click.secho(f"[{hostname}-{main_context.rank}:Cordon] ", fg='red',nl=False)
         sys.exit(1)
 
 @click.command()
@@ -107,39 +119,58 @@ async def recv_str(reader) -> str:
     return data.decode()
 
 
-async def run_evals(main_context,evals):
+async def run_evals(main_context,evals,skip_install:bool=True,index_url: str = None):
     tasks = []
     if main_context.rank==0 and main_context.local_rank==0:
         tasks.append(asyncio.create_task(synchronize_workers(main_context,evals)))
     
-    tasks.append(asyncio.create_task(run_evals_worker(main_context,evals)))
+    tasks.append(asyncio.create_task(run_evals_worker(main_context,evals,skip_install=skip_install,index_url=index_url)))
     return await asyncio.gather(*tasks, return_exceptions=True)
 
 
 
 
 
-async def run_evals_worker(main_context,evals):
+async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url: str = None):
     results = []
     for attempt in range(10):
         try:
             reader, writer = await asyncio.wait_for(asyncio.open_connection(main_context.master_addr, main_context.master_port), timeout=5.0)
             try:
                 while True:
-                    i = await recv_int(reader)
-                    if i == -1:
+                    instruction = await recv_str(reader)
+                    if instruction == "STOP":
                         return results
+                    
+                    if instruction.startswith("SETUP"):
+                        _, eval_id_str = instruction.split(":")
+                        eval_id = int(eval_id_str)
+                        result = SetupResult(rank=main_context.rank, local_rank=main_context.local_rank, eval_id=eval_id, hostname=main_context.hostname)
+                        try:
+                            if not skip_install and main_context.local_rank==0 and evals[eval_id].requirements:
+                                load_requirements(evals[eval_id].requirements,index_url)
+                                result.status = SetupResultStatus.SUCCESS
+                            else:
+                                result.status = SetupResultStatus.SKIPPED
+                        except Exception as ex:
+                            click.secho(f"Skipped: {evals[eval_id].name} (error: {ex})", fg='red')
+                            result.status = SetupResultStatus.FAILED
+                        finally:
+                            await send_str(writer, f"{result.model_dump_json()}")
 
-                    eval = evals[i]
-                    result = EvalResult(rank=main_context.rank, eval_id=i)
-                    try:
-                        if eval.verify():
-                            result = await eval.eval()
-                            results.append(result)
-                    except Exception as ex:
-                        click.secho(f"Skipped: {eval.name} (error: {ex})", fg='red')
-                    finally:
-                        await send_str(writer, f"{result.model_dump_json()}")
+                    if instruction.startswith("EVAL"):
+                        _, eval_id_str = instruction.split(":")
+                        eval_id = int(eval_id_str)
+                        eval = evals[eval_id]
+                        result = EvalResult(rank=main_context.rank, local_rank=main_context.local_rank,eval_id=eval_id, hostname=main_context.hostname)
+                        try:
+                            if eval.verify():
+                                result = await eval.eval()
+                                results.append(result)
+                        except Exception as ex:
+                            click.secho(f"Skipped: {eval.name} (error: {ex})", fg='red')
+                        finally:
+                            await send_str(writer, f"{result.model_dump_json()}")
             finally:
                 writer.close()
                 await writer.wait_closed()
@@ -150,13 +181,14 @@ async def run_evals_worker(main_context,evals):
         except Exception as e:
             raise e
     raise ConnectionError(
-        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {retries} attempts"
+        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {attempt} attempts"
     )
 
 
 async def synchronize_workers(main_context,evals):
     clients = []
     results = [[None] * main_context.world_size  for _ in range(len(evals))]
+    nodes = {}
 
     async def handle_client(reader, writer):
         try:
@@ -174,16 +206,45 @@ async def synchronize_workers(main_context,evals):
     server = await asyncio.start_server(handle_client, '0.0.0.0', main_context.master_port)
     async with server:
         try:
-            click.secho(f"Igniting workers: ", fg='green', nl=False)
+            click.secho("Igniting workers: ", fg='green', nl=False)
             while len(clients) < main_context.world_size:
                 await asyncio.sleep(0.2)
             click.echo("")
             for i in range(len(evals)):
 
                 # Send task index
-                click.secho(f"\nEvaluating {evals[i].name}:", fg='blue',nl=False)
+                click.secho(f"Setting up {evals[i].name}: ", fg='blue',nl=False)
                 for _, writer,_ in clients:
-                    await send_int(writer, i)
+                    await send_str(writer, f"SETUP:{i}")
+
+                
+                for reader, _, _ in clients:
+                    setup_json = await recv_str(reader)
+                    try:
+                        result = SetupResult.model_validate_json(setup_json)
+                    except Exception as e:
+                        click.secho(f"Error deserializing setup result JSON: {e}", fg='red')
+                        continue
+                    if result.hostname not in nodes:
+                        nodes[result.hostname] = [EvalResultStatus.UNKNOWN] * main_context.tasks_per_node
+                    match result.status:
+                        case SetupResultStatus.SUCCESS:
+                            click.secho(f"{result.hostname} 🛠️  ", fg='green', nl=False)
+                        case SetupResultStatus.SKIPPED:
+                            continue
+                        case SetupResultStatus.FAILED:
+                            click.secho(" ❌ ", fg='red', nl=False)
+                            nodes[result.hostname][result.local_rank] = EvalResultStatus.FAILED
+                        case _:
+                            click.secho(" ❓ ", fg='red', nl=False)
+                click.echo("")
+                   
+            for i in range(len(evals)):
+
+                # Send task index
+                click.secho(f"Evaluating {evals[i].name}:", fg='blue',nl=False)
+                for _, writer,_ in clients:
+                    await send_str(writer, f"EVAL:{i}")
 
                 
                 for reader, _, _ in clients:
@@ -196,23 +257,28 @@ async def synchronize_workers(main_context,evals):
                     match result.status:
                         case EvalResultStatus.SUCCESS:
                             click.secho(" ✅ ", fg='green', nl=False)
+                            if nodes[result.hostname][result.local_rank] is not EvalResultStatus.FAILED:
+                                nodes[result.hostname][result.local_rank] = EvalResultStatus.SUCCESS
                         case EvalResultStatus.FAILED:
                             click.secho(" ❌ ", fg='red', nl=False)
+                            nodes[result.hostname][result.local_rank] = EvalResultStatus.FAILED
                         case EvalResultStatus.SKIPPED:
                             click.secho(" ⏭️ ", fg='blue', nl=False)
+                            if nodes[result.hostname][result.local_rank] is EvalResultStatus.UNKNOWN:
+                                nodes[result.hostname][result.local_rank] = EvalResultStatus.SKIPPED
                         case _:
                             click.secho(" ❓ ", fg='red', nl=False)
-                    results[result.eval_id][result.rank] = result
                 click.echo("")         
         except Exception as e:
             raise e
         finally:
             for _, writer, _ in clients:
-                await send_int(writer, -1)
+                await send_str(writer, "STOP")
             for _, _, event in clients:
                 event.set()
             server.close()  # Stop accepting new connections
             await server.wait_closed() 
+    return nodes
         
 
 
@@ -232,7 +298,7 @@ def load_evals( main_context:EvalContext, eval_configs: List[EvalConfiguration],
 
 def load_requirements(requirements: List[str], index_url: str = None):
     for package in requirements:
-        cmd = [sys.executable, "-m", "pip", "install", "-q"]
+        cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir","-q"]
         if index_url:
             cmd += ["--index-url",index_url]
         if isinstance(package, str):

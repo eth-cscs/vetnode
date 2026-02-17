@@ -23,7 +23,7 @@ class BaseEval(EvalConfiguration):
         pass
     
     async def eval(self)->EvalResult:
-        result:EvalResult = EvalResult(**{"rank":self.context.rank, "eval_id":self.context.eval_id, "eval_name":self.name, "eval_type": self.type, "elapsedtime":0, "status":EvalResultStatus.UNKNOWN, "metrics":None})
+        result:EvalResult = EvalResult(**{"rank":self.context.rank,"local_rank":self.context.local_rank, "eval_id":self.context.eval_id, "eval_name":self.name, "eval_type": self.type, "elapsedtime":0, "status":EvalResultStatus.UNKNOWN, "metrics":None, "hostname":self.context.hostname})
         
         #async with asyncio.timeout(TIMEOUT):
         start_time = time.time()
