@@ -35,8 +35,8 @@ def build_context(configuration:Configuration)->EvalContext:
                 main_context.master_addr = "localhost"
                 main_context.master_port = 29500
                 main_context.world_size = 1
-                main_context.nodes_count = None
-                main_context.tasks_per_node = None
+                main_context.nodes_count = 1
+                main_context.tasks_per_node = 1
             case _:
                 raise NotImplementedError("Support for the rquested scheduler has not been implemented.")
     return main_context
