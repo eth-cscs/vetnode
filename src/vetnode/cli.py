@@ -50,7 +50,7 @@ def diagnose(config,skip_install) -> None:
     main_context= build_context(configuration)
     
     evals = load_evals(main_context, configuration.evals)
-    processes = asyncio.run(run_evals(main_context,evals,install=skip_install,index_url=configuration.pip.index_url))
+    processes = asyncio.run(run_evals(main_context,evals,skip_install=skip_install,index_url=configuration.pip.index_url))
     healthy:bool=True
     for results in processes:
         if isinstance(results, Exception):
@@ -106,19 +106,19 @@ async def recv_str(reader) -> str:
     return data.decode()
 
 
-async def run_evals(main_context,evals,install:bool=True,index_url: str = None):
+async def run_evals(main_context,evals,skip_install:bool=True,index_url: str = None):
     tasks = []
     if main_context.rank==0 and main_context.local_rank==0:
         tasks.append(asyncio.create_task(synchronize_workers(main_context,evals)))
     
-    tasks.append(asyncio.create_task(run_evals_worker(main_context,evals,install=install,index_url=index_url)))
+    tasks.append(asyncio.create_task(run_evals_worker(main_context,evals,skip_install=skip_install,index_url=index_url)))
     return await asyncio.gather(*tasks, return_exceptions=True)
 
 
 
 
 
-async def run_evals_worker(main_context,evals, install:bool=True,index_url: str = None):
+async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url: str = None):
     results = []
     for attempt in range(10):
         try:
@@ -134,7 +134,7 @@ async def run_evals_worker(main_context,evals, install:bool=True,index_url: str 
                         eval_id = int(eval_id_str)
                         result = SetupResult(rank=main_context.rank, eval_id=eval_id)
                         try:
-                            if install and main_context.local_rank==0 and evals[eval_id].requirements:
+                            if not skip_install and main_context.local_rank==0 and evals[eval_id].requirements:
                                 load_requirements(evals[eval_id].requirements,index_url)
                                 result.status = SetupResultStatus.SUCCESS
                             else:
@@ -222,7 +222,6 @@ async def synchronize_workers(main_context,evals):
                             click.secho(" ❓ ", fg='red', nl=False)
                 click.echo("")
                    
-            click.echo("") 
             for i in range(len(evals)):
 
                 # Send task index
