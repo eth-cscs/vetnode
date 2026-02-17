@@ -42,14 +42,15 @@ def build_context(configuration:Configuration)->EvalContext:
 
 @click.command()
 @click.argument("config", type=click.Path(exists=True))
-def diagnose(config) -> None:
+@click.option("--skip-install", default=False, is_flag=True, help="Skip installation of the evals requirements. Useful when requirements are already installed (see setup command).")
+def diagnose(config,skip_install) -> None:
     hostname:str = socket.gethostname()
     Configuration._yaml_file = config
     configuration = Configuration()
     main_context= build_context(configuration)
     
     evals = load_evals(main_context, configuration.evals)
-    processes = asyncio.run(run_evals(main_context,evals))
+    processes = asyncio.run(run_evals(main_context,evals,install=skip_install,index_url=configuration.pip.index_url))
     healthy:bool=True
     for results in processes:
         if isinstance(results, Exception):
@@ -105,19 +106,19 @@ async def recv_str(reader) -> str:
     return data.decode()
 
 
-async def run_evals(main_context,evals):
+async def run_evals(main_context,evals,install:bool=True,index_url: str = None):
     tasks = []
     if main_context.rank==0 and main_context.local_rank==0:
         tasks.append(asyncio.create_task(synchronize_workers(main_context,evals)))
     
-    tasks.append(asyncio.create_task(run_evals_worker(main_context,evals)))
+    tasks.append(asyncio.create_task(run_evals_worker(main_context,evals,install=install,index_url=index_url)))
     return await asyncio.gather(*tasks, return_exceptions=True)
 
 
 
 
 
-async def run_evals_worker(main_context,evals):
+async def run_evals_worker(main_context,evals, install:bool=True,index_url: str = None):
     results = []
     for attempt in range(10):
         try:
@@ -133,8 +134,8 @@ async def run_evals_worker(main_context,evals):
                         eval_id = int(eval_id_str)
                         installed = False
                         try:
-                            if  main_context.local_rank==0 and evals[eval_id].requirements:
-                                load_requirements(evals[eval_id].requirements,main_context.index_url)
+                            if install and main_context.local_rank==0 and evals[eval_id].requirements:
+                                load_requirements(evals[eval_id].requirements,index_url)
                                 installed = True
                         except Exception as ex:
                             click.secho(f"Skipped: {evals[eval_id].name} (error: {ex})", fg='red')
