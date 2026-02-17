@@ -17,6 +17,7 @@ from pydoc import locate
 def build_context(configuration:Configuration)->EvalContext:
     main_context:EvalContext    = EvalContext()
     main_context.scheduler = configuration.scheduler
+    main_context.hostname = socket.gethostname()
     match configuration.scheduler:
             case "slurm":
                 main_context.rank=int(os.environ["SLURM_PROCID"])
@@ -71,13 +72,12 @@ def diagnose(config,skip_install,verbose) -> None:
                     if verbose:
                         click.secho(f"Node: {hostname} \t result:{result}", fg='green' if result.status == EvalResultStatus.SUCCESS else 'red')
             continue
-        click.secho(f"Node: {hostname} \t result:{results}", fg='red')
-
-    #if healthy:
-    #    click.echo(f"Vetted: {hostname}")
-    #else:
-    #    click.echo(f"Cordon: {hostname}")
-    #    sys.exit(1)
+    
+    if healthy:
+        click.secho(f"Node: {hostname} \t Vetted", fg='green')
+    else:
+        click.secho(f"Node: {hostname} \t Cordon", fg='red')
+        sys.exit(1)
 
 @click.command()
 @click.argument("config", type=click.Path(exists=True))
@@ -134,7 +134,7 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
                     if instruction.startswith("SETUP"):
                         _, eval_id_str = instruction.split(":")
                         eval_id = int(eval_id_str)
-                        result = SetupResult(rank=main_context.rank, eval_id=eval_id)
+                        result = SetupResult(rank=main_context.rank, eval_id=eval_id, hostname=main_context.hostname)
                         try:
                             if not skip_install and main_context.local_rank==0 and evals[eval_id].requirements:
                                 load_requirements(evals[eval_id].requirements,index_url)
@@ -151,7 +151,7 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
                         _, eval_id_str = instruction.split(":")
                         eval_id = int(eval_id_str)
                         eval = evals[eval_id]
-                        result = EvalResult(rank=main_context.rank, eval_id=eval_id)
+                        result = EvalResult(rank=main_context.rank, eval_id=eval_id, hostname=main_context.hostname)
                         try:
                             if eval.verify():
                                 result = await eval.eval()
@@ -215,7 +215,7 @@ async def synchronize_workers(main_context,evals):
                         continue
                     match result.status:
                         case SetupResultStatus.SUCCESS:
-                            click.secho(f" 🛠️[rank: {result.rank}] ", fg='green', nl=False)
+                            click.secho(f" 🛠️{result.hostname} ", fg='green', nl=False)
                         case SetupResultStatus.SKIPPED:
                             continue
                         case SetupResultStatus.FAILED:

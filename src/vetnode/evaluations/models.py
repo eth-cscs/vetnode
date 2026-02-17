@@ -29,6 +29,7 @@ class SetupResult(BaseModel):
    rank:int
    eval_id:int
    status:SetupResultStatus=SetupResultStatus.UNKNOWN
+   hostname:Optional[str]=None
 
 class EvalResult(BaseModel):
    rank:int
@@ -38,6 +39,7 @@ class EvalResult(BaseModel):
    status:EvalResultStatus=EvalResultStatus.UNKNOWN
    elapsedtime:Optional[float]=None
    metrics:Optional[Dict[str,str]]=None
+   hostname:Optional[str]=None
 
 class EvalContext(BaseModel):
     eval_id:int=None
@@ -50,6 +52,7 @@ class EvalContext(BaseModel):
     master_addr:Optional[str]=None
     master_port:Optional[int]=None
     scheduler:Literal["slurm", "standalone"]="slurm"
+    hostname:Optional[str]=None``
 
 class BinaryByteSize(ByteSize):
     byte_sizes = {
