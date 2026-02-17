@@ -2,7 +2,7 @@
 
 
 import re
-from typing import Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Union
 from pydantic import BaseModel, ByteSize
 from enum import Enum
 
@@ -48,7 +48,7 @@ class EvalResult(BaseModel):
    eval_type:Optional[str]=None
    status:EvalResultStatus=EvalResultStatus.UNKNOWN
    elapsedtime:Optional[float]=None
-   metrics:Optional[Dict[str,str]]=None
+   metrics: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
    hostname:Optional[str]=None
 
 class EvalContext(BaseModel):
