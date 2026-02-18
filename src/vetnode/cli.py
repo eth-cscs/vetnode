@@ -243,7 +243,7 @@ async def synchronize_workers(main_context,evals):
                             continue
             for node, status in setup_nodes.items():
                 click.secho(f"{node} {status.display()}  ", fg='green', nl=False)
-                   
+            click.echo("")       
             for i in range(len(evals)):
 
                 # Send task index
