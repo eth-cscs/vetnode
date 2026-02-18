@@ -87,7 +87,7 @@ def diagnose(config,skip_install,verbose) -> None:
             click.secho(f"[{hostname}-{main_context.rank}: Vetted] ", fg='green',nl=False)
     else:
         if verbose:
-            click.secho(f"[{hostname}-{main_context.rank}:Cordon] ", fg='red',nl=False)
+            click.secho(f"[{hostname}-{main_context.rank}: Cordon] ", fg='red',nl=False)
         sys.exit(1)
 
 @click.command()
