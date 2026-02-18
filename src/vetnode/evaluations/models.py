@@ -18,6 +18,14 @@ class SetupResultStatus(Enum):
     SKIPPED = 3
     UNKNOWN = 4
 
+    def display(self) -> str:
+        return {
+            SetupResultStatus.SUCCESS: " 🛠️ ",
+            SetupResultStatus.FAILED: " ❌ ",
+            SetupResultStatus.SKIPPED: " ⏭️ ",
+            SetupResultStatus.UNKNOWN: " ❓ ",
+        }[self]
+
 class EvalResultStatus(Enum):
     SUCCESS = 1
     FAILED = 2

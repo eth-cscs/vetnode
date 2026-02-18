@@ -189,7 +189,7 @@ async def synchronize_workers(main_context,evals):
     clients = []
     results = [[None] * main_context.world_size  for _ in range(len(evals))]
     nodes = {}
-
+    setup_nodes = {}
     async def handle_client(reader, writer):
         try:
             event = asyncio.Event()
@@ -210,10 +210,10 @@ async def synchronize_workers(main_context,evals):
             while len(clients) < main_context.world_size:
                 await asyncio.sleep(0.2)
             click.echo("")
+            # Send task index
+            click.secho("Setting up nodes: ", fg='blue',nl=False)
             for i in range(len(evals)):
 
-                # Send task index
-                click.secho(f"Setting up {evals[i].name}: ", fg='blue',nl=False)
                 for _, writer,_ in clients:
                     await send_str(writer, f"SETUP:{i}")
 
@@ -227,17 +227,22 @@ async def synchronize_workers(main_context,evals):
                         continue
                     if result.hostname not in nodes:
                         nodes[result.hostname] = [EvalResultStatus.UNKNOWN] * main_context.tasks_per_node
+                        setup_nodes[result.hostname] = SetupResultStatus.UNKNOWN
+                    
                     match result.status:
                         case SetupResultStatus.SUCCESS:
-                            click.secho(f"{result.hostname} 🛠️  ", fg='green', nl=False)
+                            if setup_nodes[result.hostname] is not SetupResultStatus.FAILED:
+                                setup_nodes[result.hostname]= SetupResultStatus.SUCCESS
                         case SetupResultStatus.SKIPPED:
-                            continue
+                            if setup_nodes[result.hostname] is SetupResultStatus.UNKNOWN:
+                                setup_nodes[result.hostname] = SetupResultStatus.SKIPPED
                         case SetupResultStatus.FAILED:
-                            click.secho(" ❌ ", fg='red', nl=False)
+                            setup_nodes[result.hostname]= SetupResultStatus.FAILED
                             nodes[result.hostname][result.local_rank] = EvalResultStatus.FAILED
                         case _:
-                            click.secho(" ❓ ", fg='red', nl=False)
-                click.echo("")
+                            continue
+            for node, status in setup_nodes.items():
+                click.secho(f"{node} {status.display()}  ", fg='green', nl=False)
                    
             for i in range(len(evals)):
 
