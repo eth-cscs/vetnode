@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import math
 import time
 from typing import Literal, Optional
 import click
@@ -66,9 +67,8 @@ class NcclLibEval(BaseEval):
                     return EvalResultStatus.SKIPPED, {"bandwidth": "N/A for non-master ranks in internode topology."}
                 rank = int(self.context.rank//self.context.tasks_per_node)
         if self.topology == "intranode":
-                world_size = int(self.context.world_size//self.context.nodes_count)
-                if rank >= world_size:
-                    return EvalResultStatus.SKIPPED, {"bandwidth": "N/A for ranks beyond first node intranode topology."}
+                # Downscale to single node communication. Forcing one master per node.
+                world_size = self.context.tasks_per_node
 
         nccl = ctypes.cdll.LoadLibrary('libnccl.so')
         
@@ -108,11 +108,11 @@ class NcclLibEval(BaseEval):
         
         uid = ncclUniqueId_t()
         uid_warmup = ncclUniqueId_t()
-        if rank==0 and local_rank==0:
+        if (rank%world_size)==0 and local_rank==0:
             nccl.ncclGetUniqueId(ctypes.byref(uid))    
             nccl.ncclGetUniqueId(ctypes.byref(uid_warmup))            
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('0.0.0.0', 13333+self.context.eval_id))
+                s.bind(('0.0.0.0', 13333+self.context.eval_id+math.ceil(rank/world_size)))
                 s.settimeout(30) #wait 30s for clients to connect
                 s.listen()
                 for _ in range(world_size-1):
@@ -124,7 +124,7 @@ class NcclLibEval(BaseEval):
             for i in range(5):
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.connect((master_node, 13333+self.context.eval_id))
+                        s.connect((master_node, 13333+self.context.eval_id+math.ceil(rank/world_size)))
                         s.recv_into(uid)
                         s.recv_into(uid_warmup)
                         break
