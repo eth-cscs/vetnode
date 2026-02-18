@@ -94,9 +94,9 @@ def test_yaml_populates_expected_env(tmp_path):
 @pytest.mark.parametrize(
     "env, expected_exit, expected_token",
     [
-        ({"FI_CXI_RX_MATCH_MODE": "hybrid", "FI_MR_CACHE_MONITOR": "userfaultfd"}, 0, "Vetted:"),
-        ({"FI_CXI_RX_MATCH_MODE": "nope",   "FI_MR_CACHE_MONITOR": "userfaultfd"}, 1, "Cordon:"),
-        ({}, 1, "Cordon:"),
+        ({"FI_CXI_RX_MATCH_MODE": "hybrid", "FI_MR_CACHE_MONITOR": "userfaultfd"}, 0, ": Vetted"),
+        ({"FI_CXI_RX_MATCH_MODE": "nope",   "FI_MR_CACHE_MONITOR": "userfaultfd"}, 1, ": Cordon"),
+        ({}, 1, ": Cordon"),
     ],
 )
 def test_diagnose_env_eval(tmp_path, monkeypatch, env, expected_exit, expected_token):
@@ -119,7 +119,7 @@ def test_diagnose_env_eval(tmp_path, monkeypatch, env, expected_exit, expected_t
     """).lstrip())
 
     runner = CliRunner()
-    result = runner.invoke(diagnose, [str(cfg)])
+    result = runner.invoke(diagnose, ["--skip-install", "--verbose", str(cfg)])
 
     print(result.output)
     assert result.exit_code == expected_exit

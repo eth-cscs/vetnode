@@ -2,7 +2,7 @@
 
 
 import re
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Union
 from pydantic import BaseModel, ByteSize
 from enum import Enum
 
@@ -12,21 +12,44 @@ class EvalConfiguration(BaseModel, extra='allow'):
     requirements:Optional[List[str | List[str]]]=None
 
 
+class SetupResultStatus(Enum):
+    SUCCESS = 1
+    FAILED = 2
+    SKIPPED = 3
+    UNKNOWN = 4
+
 class EvalResultStatus(Enum):
     SUCCESS = 1
     FAILED = 2
     SKIPPED = 3
     UNKNOWN = 4
 
+    def display(self) -> str:
+        return {
+            EvalResultStatus.SUCCESS: " ✅ ",
+            EvalResultStatus.FAILED: " ❌ ",
+            EvalResultStatus.SKIPPED: " ⏭️ ",
+            EvalResultStatus.UNKNOWN: " ❓ ",
+        }[self]
+
+
+class SetupResult(BaseModel):
+   rank:int
+   local_rank:int
+   eval_id:int
+   status:SetupResultStatus=SetupResultStatus.UNKNOWN
+   hostname:Optional[str]=None
 
 class EvalResult(BaseModel):
    rank:int
+   local_rank:int
    eval_id:int
    eval_name:Optional[str]=None
    eval_type:Optional[str]=None
    status:EvalResultStatus=EvalResultStatus.UNKNOWN
    elapsedtime:Optional[float]=None
-   metrics:Optional[Dict[str, Any]]=None
+   metrics: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
+   hostname:Optional[str]=None
 
 class EvalContext(BaseModel):
     eval_id:int=None
@@ -39,6 +62,7 @@ class EvalContext(BaseModel):
     master_addr:Optional[str]=None
     master_port:Optional[int]=None
     scheduler:Literal["slurm", "standalone"]="slurm"
+    hostname:Optional[str]=None
 
 class BinaryByteSize(ByteSize):
     byte_sizes = {

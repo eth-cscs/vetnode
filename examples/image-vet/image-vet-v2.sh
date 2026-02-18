@@ -36,33 +36,37 @@ mounts = [
 writable = true
 
 [env]
+PMIX_MCA_psec="native"
 
 [annotations]
 com.hooks.cxi.enabled="false"
+#com.hooks.aws_ofi_nccl.enabled = "true"
+#com.hooks.aws_ofi_nccl.variant = "cuda13"
+
 
 EOF
 
-wget -O config.yaml https://raw.githubusercontent.com/theely/vetnode/refs/heads/main/examples/image-vet/config.yaml
-sbcast config.yaml /tmp/config.yaml
 
-srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --environment=${ENV_FILE} --container-writable bash -c '
+srun --mpi=pmix -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --environment=${ENV_FILE} --container-writable bash -c '
 
     echo "[image-vet] Set-up vetnode on $(hostname)..." 
-    cd /tmp
+    cd /capstor/scratch/cscs/palmee/golden-image-test/
+    rm -f config.yaml
+    wget -O config.yaml https://raw.githubusercontent.com/theely/vetnode/refs/heads/main/examples/image-vet/config.yaml
     python -m venv --system-site-packages .venv
     source .venv/bin/activate
     pip install --no-cache-dir --index-url "https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple" vetnode
-    vetnode setup /tmp/config.yaml 
+    vetnode setup config.yaml 
 '
 
-srun -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=4 -u --environment=${ENV_FILE} --container-writable bash -c '
+srun --mpi=pmix -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=4 -u --environment=${ENV_FILE} --container-writable bash -c '
     
     #Enable logging
     # export NCCL_DEBUG=INFO
     # export NCCL_DEBUG_SUBSYS=INIT,NET	
 
     echo "[image-vet] diagnose"
-    cd /tmp
+    cd /capstor/scratch/cscs/palmee/golden-image-test/
     source .venv/bin/activate
-    vetnode diagnose /tmp/config.yaml
+    vetnode diagnose config.yaml
 '

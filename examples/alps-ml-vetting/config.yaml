@@ -1,0 +1,59 @@
+name: Image Vetting
+scheduler: slurm
+pip:
+   index_url: "https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple"
+evals:
+- name: Check GPU
+  type: vetnode.evaluations.gpu_eval.GPUEval
+  max_temp:  30
+  max_used_memory: 0.2
+- name: CudaKernel
+  type: vetnode.evaluations.cuda_eval.CUDAEval
+  cuda_home: /usr/local/cuda 
+  requirements:
+    - cuda-python==13.*
+    - numpy
+- name: NCCL-Low-Level-Internode
+  type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
+  topology: internode
+  scheduler: slurm
+  payload: 8 GB
+  method: allreduce
+  min_bandwidth: 15 GB/s
+  warmup:
+    payload: 256 MB
+    runs: 2
+  requirements: ["cuda-python","numpy"]
+- name: NCCL-Low-Level-Intranode
+  type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
+  topology: intranode
+  scheduler: slurm
+  payload: 8 GB
+  method: allreduce
+  min_bandwidth: 250 GB/s
+  warmup:
+    payload: 2 GB
+    runs: 3
+  requirements: ["cuda-python","numpy"]
+- name: NCCL-Low-Level-Full-Topology
+  type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
+  scheduler: slurm
+  payload: 8 GB
+  method: allreduce
+  min_bandwidth: 50 GB/s
+  warmup:
+    payload: 2 GB
+    runs: 3
+  requirements: ["cuda-python","numpy"]
+- name: NCCL-PyTorch
+  type: vetnode.evaluations.nccl_pytorch_eval.NcclPytorchEval
+  scheduler: slurm
+  payload: 8 GB
+  method: allreduce
+  min_bandwidth: 50 GB/s
+  warmup:
+    payload: 2 GB
+    runs: 3
+  requirements:
+      - ['torch', '--index-url', 'https://download.pytorch.org/whl/cu130']
+      - numpy
