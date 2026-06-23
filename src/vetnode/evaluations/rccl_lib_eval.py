@@ -124,13 +124,22 @@ class RcclLibEval(BaseEval):
         for _ in range(self.warmup.runs):
             rccl.ncclAllReduce(dev_in, dev_out, n, rccl.ncclDataType_t.ncclFloat32, rccl.ncclRedOp_t.ncclSum, comm, stream)
 
+        # Drain warm-up work from the stream before allocating measurement buffers
+        hip.hipStreamSynchronize(stream)
+
         # Actual measurement
         n = self.payload//4 #np.float32 is 4 baytes
-        
+
         host = np.full(n, rank + 1, dtype=np.float32)
         status, dev_in = hip.hipMalloc(host.nbytes)
         status, dev_out = hip.hipMalloc(host.nbytes)
-        hip.hipMemcpy(dev_in, host.ctypes.data, host.nbytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost)
+        hip.hipMemcpy(dev_in, host.ctypes.data, host.nbytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+
+        # Barrier: align all ranks at the same wall-clock point before the timer.
+        status, dev_barrier = hip.hipMalloc(4)
+        rccl.ncclAllReduce(dev_barrier, dev_barrier, 1, rccl.ncclDataType_t.ncclFloat32, rccl.ncclRedOp_t.ncclSum, comm, stream)
+        hip.hipStreamSynchronize(stream)
+        hip.hipFree(dev_barrier)
 
         start_time = time.time()
 
