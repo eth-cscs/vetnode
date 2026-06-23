@@ -164,15 +164,26 @@ class NcclLibEval(BaseEval):
 
         # Re-warm-up
         for _ in range(self.warmup.runs):
-            nccl.ncclAllReduce(dev_in, dev_out, n, ncclDataType_t, ncclRedOp_t, comm, stream_ptr)    
+            nccl.ncclAllReduce(dev_in, dev_out, n, ncclDataType_t, ncclRedOp_t, comm, stream_ptr)
+
+        # Drain warm-up work from the stream before allocating measurement buffers
+        cudart.cudaStreamSynchronize(stream)
 
         # Actual measurement
         n = self.payload//4 #np.float32 is 4 baytes
-        
+
         host = np.full(n, rank + 1, dtype=np.float32)
         status, dev_in = cudart.cudaMalloc(host.nbytes)
         status, dev_out = cudart.cudaMalloc(host.nbytes)
         cudart.cudaMemcpy(dev_in, host.ctypes.data, host.nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice)
+
+        # Barrier: align all ranks at the same wall-clock point before the timer.
+        # Without this, slower ranks inflate their measured time with cross-rank wait.
+        barrier_buf = ctypes.c_float(0.0)
+        status, dev_barrier = cudart.cudaMalloc(ctypes.sizeof(barrier_buf))
+        nccl.ncclAllReduce(dev_barrier, dev_barrier, 1, ncclDataType_t, ncclRedOp_t, comm, stream_ptr)
+        cudart.cudaStreamSynchronize(stream)
+        cudart.cudaFree(dev_barrier)
 
         start_time = time.time()
         result = nccl.ncclAllReduce(dev_in, dev_out, n, ncclDataType_t, ncclRedOp_t, comm, stream_ptr)
