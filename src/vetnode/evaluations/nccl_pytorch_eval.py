@@ -88,42 +88,42 @@ class NcclPytorchEval(BaseEval):
         return EvalResultStatus.SUCCESS if bandwidth > self.min_bandwidth else EvalResultStatus.FAILED, {"bandwidth":f"{conv_to_GBps(bandwidth):6.2f} GB/s"}
     
     def timed_allreduce_gather(self,local_rank,rank,tensor,size,ranks):
-        
+
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
         tensor_b = tensor.detach().clone()
 
         dist.all_reduce(tensor_b,op=dist.ReduceOp.SUM)
 
-        start_event.record()
         if rank == 0:
             gather_list = [torch.zeros_like(tensor) for _ in range(ranks)]
         else:
             gather_list = None
+
+        dist.barrier(device_ids=[local_rank])
+        start_event.record()
 
         dist.gather(tensor, gather_list, dst=0)
 
         end_event.record()
 
-        dist.barrier()
         torch.cuda.synchronize()
-        torch.cuda.empty_cache()
         duration = start_event.elapsed_time(end_event) / 1000
-        bandwidth = size/duration        
+        bandwidth = size/duration
         return bandwidth * (ranks - 1)
     
     def timed_gather(self,local_rank,rank,tensor,size,ranks):
-        
+
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
-        
-        dist.barrier(device_ids=[local_rank])
 
-        start_event.record()
         if rank == 0:
             gather_list = [torch.zeros_like(tensor) for _ in range(ranks)]
         else:
             gather_list = None
+
+        dist.barrier(device_ids=[local_rank])
+        start_event.record()
 
         dist.gather(tensor, gather_list, dst=0)
 
