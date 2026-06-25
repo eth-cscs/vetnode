@@ -22,12 +22,20 @@ WORK_DIR="vetnode-$SLURM_JOB_ID"
 
 # Download vetnode source code
 git clone https://github.com/theely/vetnode.git $WORK_DIR
+#Note: to test a specific commit, uncomment the following lines and replace <commit-hash> with the desired commit hash
+#git fetch --all
+#git checkout <commit-hash>
 cd $WORK_DIR
+
+#wget -O config.yaml https://raw.githubusercontent.com/theely/vetnode/refs/heads/main/examples/local-test/config.yaml
+wget -O config.yaml https://raw.githubusercontent.com/theely/vetnode/refs/heads/main/examples/image-vet/config.yaml
+
+sbcast config.yaml /tmp/config.yaml
 
 mkdir aws-ofi-nccl
 mkdir aws-ofi-nccl/lib
 arch=$(uname -m)
-curl -o ./aws-ofi-nccl/lib/libnccl-net.so https://jfrog.svc.cscs.ch/artifactory/aws-ofi-nccl-gen-dev/v1.14.1-cae0941/${arch}/SLES/15.5/cuda12/lib/libnccl-net.so
+curl -o ./aws-ofi-nccl/lib/libnccl-net.so https://jfrog.svc.cscs.ch/artifactory/aws-ofi-nccl-gen-dev/v1.17.2-790ea4a/${arch}/cuda13/lib/libnccl-net.so
 export PATH_PLUGIN=$(pwd)/aws-ofi-nccl
 
 
@@ -40,24 +48,28 @@ pip install --no-cache-dir -r ./requirements.txt
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/nvidia/hpc_sdk/Linux_aarch64/24.3/cuda/12.3/lib64/
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/nvidia/hpc_sdk/Linux_aarch64/2024/comm_libs/nccl/lib/
 
-#export LD_LIBRARY_PATH=/opt/cray/libfabric/1.15.2.0/lib64/:$LD_LIBRARY_PATH
-#export LD_LIBRARY_PATH=$PATH_PLUGIN/lib/:$LD_LIBRARY_PATH
-#export LD_PRELOAD=$PATH_PLUGIN/lib/libnccl-net.so 
 
-export CXI_FORK_SAFE="1"
-export CXI_FORK_SAFE_HP="1"
-export FI_CXI_DISABLE_CQ_HUGETLB="1"
-export NCCL_CROSS_NIC="1"
-export NCCL_DEBUG="Info"
+export CUDA_CACHE_DISABLE="1"
+export NCCL_NET="AWS Libfabric"
+export NCCL_CROSS_NIC="0"
 export NCCL_NET_GDR_LEVEL="PHB"
+export NCCL_PROTO="^LL128"
+export FI_PROVIDER="cxi"
+export FI_CXI_DEFAULT_CQ_SIZE="131072"
+export FI_CXI_DEFAULT_TX_SIZE="16384"
 export FI_CXI_DISABLE_HOST_REGISTER="1"
+export FI_CXI_RDZV_PROTO="alt_read"
+export FI_CXI_RDZV_EAGER_SIZE="0"
+export FI_CXI_RDZV_GET_MIN="0"
+export FI_CXI_RDZV_THRESHOLD="0"
+export FI_CXI_RX_MATCH_MODE="hybrid"
 export FI_MR_CACHE_MONITOR="userfaultfd"
 
 cd src
 
 #Setup node vetting on main node
-python -m vetnode  setup ../examples/local-test/config.yaml
+python -m vetnode  setup /tmp/config.yaml
 
 # Run nodes vetting
-srun  python -m vetnode  diagnose ../examples/local-test/config.yaml
+srun  python -m vetnode  diagnose /tmp/config.yaml
 

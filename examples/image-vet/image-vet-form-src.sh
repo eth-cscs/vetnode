@@ -17,6 +17,7 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
+
 IMAGE_NAME="$1"
 
 echo "[image-vet] Evaluating Image: $IMAGE_NAME"
@@ -38,6 +39,7 @@ writable = true
 [env]
 PMIX_MCA_psec="native"
 
+
 [annotations]
 com.hooks.cxi.enabled="false"
 #com.hooks.aws_ofi_nccl.enabled = "true"
@@ -46,27 +48,53 @@ com.hooks.cxi.enabled="false"
 
 EOF
 
+cleanup() { 
+    echo "[image-vet] clean-up configuration..."; 
+    rm -f "$ENV_FILE"; 
+}
+trap cleanup EXIT
 
-srun --mpi=pmix -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --environment=${ENV_FILE} --container-writable bash -c '
+wget -O config.yaml https://raw.githubusercontent.com/theely/vetnode/refs/heads/main/examples/image-vet/config.yaml
+sbcast config.yaml /tmp/config.yaml
+
+if srun --mpi=pmix -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=1 -u --environment=${ENV_FILE} --container-writable bash -c '
 
     echo "[image-vet] Set-up vetnode on $(hostname)..." 
-    cd /capstor/scratch/cscs/palmee/golden-image-test/
-    rm -f config.yaml
-    wget -O config.yaml https://raw.githubusercontent.com/theely/vetnode/refs/heads/main/examples/image-vet/config.yaml
+    sleep $((RANDOM % 11))
+    cd  /tmp/
+    rm -rf .venv
+
+    # Download vetnode source code
+    git clone https://github.com/theely/vetnode.git
+    cd vetnode
+
+    #Note: to test a specific commit, uncomment the following lines and replace <commit-hash> with the desired commit hash
+    #git fetch --all
+    #git checkout <commit-hash>
+
     python -m venv --system-site-packages .venv
     source .venv/bin/activate
-    pip install --no-cache-dir --index-url "https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple" vetnode
-    vetnode setup config.yaml 
-'
+    pip install --no-cache-dir -r ./requirements.txt
+    cd src
+    python -m vetnode  setup /tmp/config.yaml
+' > /dev/null; then
+    echo "[image-vet] Set-up completed successfully."
+else
+    echo "[image-vet] Set-up failed."
+    exit 1
+fi
 
+
+echo "[image-vet] Starting diagnose..."
 srun --mpi=pmix -N ${SLURM_JOB_NUM_NODES} --tasks-per-node=4 -u --environment=${ENV_FILE} --container-writable bash -c '
     
     #Enable logging
     # export NCCL_DEBUG=INFO
     # export NCCL_DEBUG_SUBSYS=INIT,NET	
 
-    echo "[image-vet] diagnose"
-    cd /capstor/scratch/cscs/palmee/golden-image-test/
+    
+    cd  /tmp/vetnode
     source .venv/bin/activate
-    vetnode diagnose config.yaml
+    cd src
+    python -m vetnode diagnose /tmp/config.yaml
 '
