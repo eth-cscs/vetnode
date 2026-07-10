@@ -133,7 +133,9 @@ async def run_evals(main_context,evals,skip_install:bool=True,index_url: str = N
 
 async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url: str = None):
     results = []
-    for attempt in range(10):
+    max_attempts = 60
+    retry_sleep = 5.0
+    for attempt in range(max_attempts):
         try:
             reader, writer = await asyncio.wait_for(asyncio.open_connection(main_context.master_addr, main_context.master_port), timeout=5.0)
             try:
@@ -141,7 +143,7 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
                     instruction = await recv_str(reader)
                     if instruction == "STOP":
                         return results
-                    
+
                     if instruction.startswith("SETUP"):
                         _, eval_id_str = instruction.split(":")
                         eval_id = int(eval_id_str)
@@ -176,12 +178,14 @@ async def run_evals_worker(main_context,evals, skip_install:bool=True,index_url:
                 await writer.wait_closed()
                 return results
         except (asyncio.TimeoutError, ConnectionRefusedError) as e:
-            await asyncio.sleep(2.0)
+            reason = "timed out" if isinstance(e, asyncio.TimeoutError) else "refused"
+            click.secho(f"[{main_context.hostname}] Connection to {main_context.master_addr}:{main_context.master_port} {reason} (attempt {attempt + 1}/{max_attempts})", fg='yellow', err=True)
+            await asyncio.sleep(retry_sleep)
             continue
         except Exception as e:
             raise e
     raise ConnectionError(
-        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {attempt} attempts"
+        f"Failed to connect to master node {main_context.master_addr}:{main_context.master_port} after {max_attempts} attempts"
     )
 
 
